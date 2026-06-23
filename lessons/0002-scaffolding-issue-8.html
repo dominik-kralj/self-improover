@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 2 — Scaffolding issue #8</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="lesson-meta">Self-Improover · Lesson 2 of ?</div>
+  <h1>Scaffolding the monorepo</h1>
+  <p class="subtitle">Completing issue #8 — step by step</p>
+
+  <h2>What you will build</h2>
+
+  <p>By the end of this lesson you will have a working monorepo: both packages compile, <code>npm install</code> works from the root, and you are ready to pick up issue #9 (ESLint + Prettier).</p>
+
+  <p>Every command runs from the repo root (<code>self-improover/</code>) unless stated otherwise.</p>
+
+  <h2>Step 1 — Root package.json</h2>
+
+  <p>Create <code>package.json</code> at the repo root. The only required fields are <code>private: true</code> (prevents accidentally publishing the root) and <code>workspaces</code>:</p>
+
+  <pre><code>{
+  "name": "self-improover",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev:frontend": "npm run dev --workspace=frontend",
+    "dev:backend":  "npm run dev --workspace=backend"
+  }
+}</code></pre>
+
+  <div class="callout">
+    <strong>Why <code>private: true</code>?</strong>
+    Without it, running <code>npm publish</code> by accident would try to publish the root package to the npm registry. <code>private: true</code> makes that an error instead.
+  </div>
+
+  <h2>Step 2 — Shared TypeScript base config</h2>
+
+  <p>Create <code>tsconfig.base.json</code> at the root. This is the single source of truth for compiler strictness:</p>
+
+  <pre><code>{
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  }
+}</code></pre>
+
+  <p><code>skipLibCheck: true</code> skips type-checking inside <code>node_modules/</code> — this avoids false errors from third-party packages that have imperfect types.</p>
+
+  <h2>Step 3 — Backend package</h2>
+
+  <p>Create the <code>backend/</code> directory and its <code>package.json</code>:</p>
+
+  <pre><code>{
+  "name": "@self-improover/backend",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts"
+  }
+}</code></pre>
+
+  <p>Then create <code>backend/tsconfig.json</code>:</p>
+
+  <pre><code>{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}</code></pre>
+
+  <p>And a minimal entry point at <code>backend/src/index.ts</code>:</p>
+
+  <pre><code>console.log("backend: ok");</code></pre>
+
+  <div class="callout">
+    <strong>What is <code>tsx</code>?</strong>
+    <code>tsx</code> is a lightweight tool that runs TypeScript files directly in Node.js without a separate compile step — like <code>ts-node</code> but faster. You will install it in a moment. It is only used during development; the production build compiles to plain JavaScript.
+  </div>
+
+  <h2>Step 4 — Frontend package</h2>
+
+  <p>Create <code>frontend/package.json</code>:</p>
+
+  <pre><code>{
+  "name": "@self-improover/frontend",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview"
+  }
+}</code></pre>
+
+  <p>Then <code>frontend/tsconfig.json</code>:</p>
+
+  <pre><code>{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "include": ["src"]
+}</code></pre>
+
+  <p>And a minimal entry point at <code>frontend/src/main.tsx</code>:</p>
+
+  <pre><code>console.log("frontend: ok");</code></pre>
+
+  <h2>Step 5 — Install dependencies</h2>
+
+  <p>Install the minimum dependencies needed to make both packages compile. Run these from the repo root:</p>
+
+  <pre><code># Backend: TypeScript + tsx runner
+npm install --save-dev typescript tsx --workspace=backend
+
+# Frontend: TypeScript + Vite + React
+npm install --save-dev typescript vite @vitejs/plugin-react --workspace=frontend
+npm install react react-dom --workspace=frontend
+npm install --save-dev @types/react @types/react-dom --workspace=frontend</code></pre>
+
+  <p>Then install everything with a single root-level install:</p>
+
+  <pre><code>npm install</code></pre>
+
+  <h2>Step 6 — Vite config for the frontend</h2>
+
+  <p>Vite needs a config file to know you are using React. Create <code>frontend/vite.config.ts</code>:</p>
+
+  <pre><code>import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+});</code></pre>
+
+  <h2>Step 7 — Verify both packages work</h2>
+
+  <p>Run each package in turn and confirm there are no errors:</p>
+
+  <pre><code># Backend: should print "backend: ok"
+npm run dev --workspace=backend
+
+# Frontend: should start the Vite dev server
+npm run dev --workspace=frontend</code></pre>
+
+  <p>If both run without TypeScript errors, issue #8 is done.</p>
+
+  <h2>The completed structure</h2>
+
+  <div class="diagram">self-improover/
+├── package.json             ✓ workspaces: [frontend, backend]
+├── tsconfig.base.json       ✓ strict: true, shared settings
+├── node_modules/            ✓ hoisted shared deps
+│
+├── frontend/
+│   ├── package.json         ✓ @self-improover/frontend
+│   ├── tsconfig.json        ✓ extends ../tsconfig.base.json, adds DOM + JSX
+│   ├── vite.config.ts       ✓ React plugin
+│   └── src/
+│       └── main.tsx         ✓ compiles without errors
+│
+└── backend/
+    ├── package.json         ✓ @self-improover/backend
+    ├── tsconfig.json        ✓ extends ../tsconfig.base.json, NodeNext
+    └── src/
+        └── index.ts         ✓ compiles without errors</div>
+
+  <!-- Quiz -->
+  <div class="quiz">
+    <h3>Check your understanding</h3>
+
+    <div class="quiz-question">
+      <p>1. You want to add the <code>hono</code> package to the backend only. Which command is correct?</p>
+      <div class="quiz-options">
+        <label class="quiz-option"><input type="radio" name="q1" value="a"> <code>npm install hono</code> (from repo root)</label>
+        <label class="quiz-option"><input type="radio" name="q1" value="b"> <code>npm install hono --workspace=backend</code></label>
+        <label class="quiz-option"><input type="radio" name="q1" value="c"> <code>cd backend &amp;&amp; npm install hono</code></label>
+        <label class="quiz-option"><input type="radio" name="q1" value="d"> Add it to the root <code>package.json</code> dependencies</label>
+      </div>
+      <div class="quiz-feedback" id="q1-feedback"></div>
+    </div>
+
+    <div class="quiz-question">
+      <p>2. The backend's <code>tsconfig.json</code> sets <code>"module": "NodeNext"</code>. The frontend sets <code>"module": "ESNext"</code>. Why the difference?</p>
+      <div class="quiz-options">
+        <label class="quiz-option"><input type="radio" name="q2" value="a"> NodeNext resolves modules using Node.js rules; ESNext lets Vite handle bundling</label>
+        <label class="quiz-option"><input type="radio" name="q2" value="b"> NodeNext is faster; ESNext produces smaller bundles</label>
+        <label class="quiz-option"><input type="radio" name="q2" value="c"> They are interchangeable — either works in both packages</label>
+        <label class="quiz-option"><input type="radio" name="q2" value="d"> NodeNext is only needed when using Drizzle ORM</label>
+      </div>
+      <div class="quiz-feedback" id="q2-feedback"></div>
+    </div>
+
+    <div class="quiz-question">
+      <p>3. After scaffolding, what is the acceptance criterion that confirms issue #8 is complete?</p>
+      <div class="quiz-options">
+        <label class="quiz-option"><input type="radio" name="q3" value="a"> Both packages have a <code>package.json</code> and a <code>tsconfig.json</code></label>
+        <label class="quiz-option"><input type="radio" name="q3" value="b"> <code>npm install</code> completes and both packages compile without TypeScript errors</label>
+        <label class="quiz-option"><input type="radio" name="q3" value="c"> The Vite dev server starts and renders a React component</label>
+        <label class="quiz-option"><input type="radio" name="q3" value="d"> ESLint passes on both packages</label>
+      </div>
+      <div class="quiz-feedback" id="q3-feedback"></div>
+    </div>
+  </div>
+
+  <div class="lesson-footer">
+    <p><strong>Primary source:</strong> <a href="https://docs.npmjs.com/cli/v10/using-npm/workspaces" target="_blank">npm workspaces — official docs</a> — the definitive reference for everything the <code>workspaces</code> field does.</p>
+    <p style="margin-top:0.75rem"><strong>Next:</strong> Issue #9 — ESLint + Prettier setup (sharing lint config across both packages)</p>
+    <p style="margin-top:1rem; padding-top:0.75rem; border-top:1px solid var(--rule)">
+      Questions? Anything unclear? Ask your teacher in the chat.
+    </p>
+    <div class="lesson-nav">
+      <a href="0001-what-is-a-monorepo.html">← Lesson 1</a>
+      <span>Lesson 3 coming after issue #9</span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const answers = { q1: 'b', q2: 'a', q3: 'b' };
+const explanations = {
+  q1: {
+    a: 'This installs hono at the root, not inside backend/ — it would be shared by all packages.',
+    b: 'Correct. The --workspace flag targets the install to a specific package.',
+    c: 'This works, but running from the root with --workspace is the cleaner monorepo convention.',
+    d: 'Root dependencies are shared across all packages — not what you want here.'
+  },
+  q2: {
+    a: 'Correct. Node.js has its own module resolution rules (e.g. requiring file extensions). Vite handles bundling so ESNext tells TS to leave module syntax alone.',
+    b: 'These are module resolution strategies, not performance settings.',
+    c: "They are not interchangeable — NodeNext in the frontend would break Vite's bundling.",
+    d: 'NodeNext is about Node.js module resolution, not Drizzle specifically.'
+  },
+  q3: {
+    a: 'Having the files is necessary but not sufficient — they also need to compile without errors.',
+    b: 'Correct. The acceptance criteria in issue #8 require both packages to compile with no TypeScript errors.',
+    c: 'Rendering a React component goes beyond the scope of issue #8 — that comes in issue #13.',
+    d: 'ESLint setup is issue #9, not issue #8.'
+  }
+};
+
+document.querySelectorAll('input[type=radio]').forEach(input => {
+  input.addEventListener('change', function() {
+    const name = this.name;
+    const chosen = this.value;
+    const correct = answers[name];
+    const fb = document.getElementById(name + '-feedback');
+    const options = document.querySelectorAll(`input[name="${name}"]`);
+    options.forEach(opt => {
+      const label = opt.closest('.quiz-option');
+      label.classList.remove('correct', 'wrong');
+      if (opt.value === correct) label.classList.add('correct');
+      else if (opt.value === chosen && chosen !== correct) label.classList.add('wrong');
+    });
+    fb.textContent = explanations[name][chosen];
+    fb.className = 'quiz-feedback ' + (chosen === correct ? 'correct' : 'wrong');
+  });
+});
+</script>
+</body>
+</html>

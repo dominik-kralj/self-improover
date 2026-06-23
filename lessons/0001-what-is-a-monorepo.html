@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 1 — What is a monorepo?</title>
+  <link rel="stylesheet" href="../assets/lesson.css">
+</head>
+<body>
+<div class="page">
+
+  <div class="lesson-meta">Self-Improover · Lesson 1 of ?</div>
+  <h1>What is a monorepo?</h1>
+  <p class="subtitle">Understanding the structure before you scaffold issue #8</p>
+
+  <h2>The problem it solves</h2>
+
+  <p>Self-Improover has two separate programs: a <strong>React frontend</strong> and a <strong>Hono backend</strong>. You could put them in two completely separate git repositories — a <em>polyrepo</em>. Many teams do.</p>
+
+  <p>But with two repos, every shared concern doubles: two CI configs, two sets of ESLint rules, two TypeScript setups to keep in sync. When you want to make a change that touches both sides — say, changing the shape of a Check-in — you open two repos, make two PRs, and pray they land together.</p>
+
+  <p>A <strong>monorepo</strong> puts both programs in <em>one</em> git repository, each in its own folder called a <strong>workspace package</strong>. You get one commit history, one lint config, one place to look.</p>
+
+  <div class="callout">
+    <strong>One repo ≠ one program.</strong>
+    A monorepo is not a monolith. The frontend and backend are still completely separate Node.js packages — they just live in the same git repo. They are deployed separately, built separately, and have their own <code>package.json</code> files.
+  </div>
+
+  <h2>The structure for Self-Improover</h2>
+
+  <p>Here is exactly what issue #8 will produce:</p>
+
+  <div class="diagram">self-improover/              ← one git repo
+├── package.json             ← root: workspaces config + shared scripts
+├── tsconfig.base.json       ← shared TypeScript settings
+├── .eslintrc.js             ← shared ESLint rules (issue #9)
+├── .prettierrc              ← shared Prettier config (issue #9)
+│
+├── frontend/
+│   ├── package.json         ← frontend's own deps (React, Chakra UI…)
+│   ├── tsconfig.json        ← extends tsconfig.base.json
+│   └── src/
+│       └── main.tsx
+│
+└── backend/
+    ├── package.json         ← backend's own deps (Hono, Drizzle…)
+    ├── tsconfig.json        ← extends tsconfig.base.json
+    └── src/
+        └── index.ts</div>
+
+  <h2>How npm workspaces glues it together</h2>
+
+  <p>The root <code>package.json</code> declares the workspace packages. That is the only special thing about it:</p>
+
+  <pre><code>{
+  "name": "self-improover",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend"
+  ]
+}</code></pre>
+
+  <p>Running <code>npm install</code> at the root installs <em>all</em> dependencies for both packages in one go. npm hoists shared dependencies to the root <code>node_modules/</code> and puts package-specific ones inside each folder's <code>node_modules/</code>.</p>
+
+  <p>You can run a script in a specific workspace from the root:</p>
+
+  <pre><code># Start only the backend
+npm run dev --workspace=backend
+
+# Run lint in both packages
+npm run lint --workspaces</code></pre>
+
+  <h2>TypeScript across packages</h2>
+
+  <p>Both packages will use TypeScript strict mode. Rather than copy the same settings twice, you write them once in a <strong>base config</strong> at the root, and each package <em>extends</em> it:</p>
+
+  <pre><code>// tsconfig.base.json (root)
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022",
+    "moduleResolution": "bundler",
+    "esModuleInterop": true
+  }
+}
+
+// frontend/tsconfig.json
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM"],
+    "jsx": "react-jsx"
+  }
+}
+
+// backend/tsconfig.json
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "module": "NodeNext"
+  }
+}</code></pre>
+
+  <p>The frontend needs <code>DOM</code> types (for <code>window</code>, <code>document</code>, etc.). The backend does not — those would be wrong on a Node.js server. This is why the split exists.</p>
+
+  <h2>What this is <em>not</em></h2>
+
+  <p>You may have heard of <strong>Turborepo</strong> or <strong>Nx</strong> — tools that add build caching, task orchestration, and remote caching on top of monorepos. You do not need them for Self-Improover. They solve problems that appear at scale (hundreds of packages, long CI times). npm workspaces alone is exactly the right tool here.</p>
+
+  <div class="callout">
+    <strong>The rule of thumb:</strong> use plain npm workspaces until you feel the pain Turborepo solves. You will know it when you feel it — and you almost certainly won't on a two-package project.
+  </div>
+
+  <!-- Quiz -->
+  <div class="quiz">
+    <h3>Check your understanding</h3>
+
+    <div class="quiz-question" id="q1">
+      <p>1. In a monorepo, <code>frontend/</code> and <code>backend/</code> share one git repository. What do they <em>not</em> share?</p>
+      <div class="quiz-options">
+        <label class="quiz-option"><input type="radio" name="q1" value="a"> A single git commit history</label>
+        <label class="quiz-option"><input type="radio" name="q1" value="b"> A single deployment pipeline</label>
+        <label class="quiz-option"><input type="radio" name="q1" value="c"> A single root ESLint config</label>
+        <label class="quiz-option"><input type="radio" name="q1" value="d"> A single <code>package.json</code> at the root</label>
+      </div>
+      <div class="quiz-feedback" id="q1-feedback"></div>
+    </div>
+
+    <div class="quiz-question" id="q2">
+      <p>2. What does the <code>workspaces</code> field in the root <code>package.json</code> do?</p>
+      <div class="quiz-options">
+        <label class="quiz-option"><input type="radio" name="q2" value="a"> Merges frontend and backend into one Node.js process</label>
+        <label class="quiz-option"><input type="radio" name="q2" value="b"> Tells npm which sub-folders are packages to install and link together</label>
+        <label class="quiz-option"><input type="radio" name="q2" value="c"> Sets up TypeScript path aliases between packages</label>
+        <label class="quiz-option"><input type="radio" name="q2" value="d"> Enables Turborepo caching on the project</label>
+      </div>
+      <div class="quiz-feedback" id="q2-feedback"></div>
+    </div>
+
+    <div class="quiz-question" id="q3">
+      <p>3. Why does <code>frontend/tsconfig.json</code> include <code>"lib": ["ES2022", "DOM"]</code> but <code>backend/tsconfig.json</code> does not include <code>DOM</code>?</p>
+      <div class="quiz-options">
+        <label class="quiz-option"><input type="radio" name="q3" value="a"> The backend runs in Node.js — there is no <code>window</code> or <code>document</code> there</label>
+        <label class="quiz-option"><input type="radio" name="q3" value="b"> Hono does not support TypeScript DOM types</label>
+        <label class="quiz-option"><input type="radio" name="q3" value="c"> The DOM lib is automatically added by Vite so no config is needed</label>
+        <label class="quiz-option"><input type="radio" name="q3" value="d"> DOM types are only needed when using React hooks</label>
+      </div>
+      <div class="quiz-feedback" id="q3-feedback"></div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <div class="lesson-footer">
+    <p><strong>Primary source:</strong> <a href="https://turbo.build/repo/docs/handbook" target="_blank">Turborepo Handbook — "What is a monorepo?"</a> — the clearest conceptual overview available. Read sections 1–3.</p>
+    <p style="margin-top:0.75rem"><strong>Next:</strong> <a href="0002-npm-workspaces-in-practice.html">Lesson 2 — npm workspaces in practice</a> (scaffolding issue #8 step by step)</p>
+    <p style="margin-top:1rem; padding-top:0.75rem; border-top:1px solid var(--rule)">
+      Questions? Anything unclear? Ask your teacher — type your question in the chat and get an explanation tailored to what you already know.
+    </p>
+    <div class="lesson-nav">
+      <span></span>
+      <a href="0002-npm-workspaces-in-practice.html">Next lesson →</a>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const answers = { q1: 'b', q2: 'b', q3: 'a' };
+const explanations = {
+  q1: {
+    a: 'The git history is shared — that\'s the point of a monorepo.',
+    b: 'Correct. Each package is deployed separately — they just share a repo.',
+    c: 'ESLint config lives at the root and applies to both packages.',
+    d: 'There is a root package.json — that\'s where the workspaces field lives.'
+  },
+  q2: {
+    a: 'No — they remain separate programs with separate processes.',
+    b: 'Correct. npm reads this to find, install, and symlink your workspace packages.',
+    c: 'Path aliases are set in tsconfig.json, not package.json workspaces.',
+    d: 'Workspaces is a plain npm feature — Turborepo is a separate, optional tool.'
+  },
+  q3: {
+    a: 'Correct. Node.js has no DOM. Including it would add types for things that don\'t exist there.',
+    b: 'Hono is TypeScript-friendly — this has nothing to do with Hono.',
+    c: 'Vite adds the lib setting for its own internal use, but your tsconfig should be explicit.',
+    d: 'DOM types cover far more than hooks — window, document, fetch, Event, etc.'
+  }
+};
+
+document.querySelectorAll('input[type=radio]').forEach(input => {
+  input.addEventListener('change', function() {
+    const name = this.name;
+    const chosen = this.value;
+    const correct = answers[name];
+    const fb = document.getElementById(name + '-feedback');
+    const options = document.querySelectorAll(`input[name="${name}"]`);
+    options.forEach(opt => {
+      const label = opt.closest('.quiz-option');
+      label.classList.remove('correct', 'wrong');
+      if (opt.value === correct) label.classList.add('correct');
+      else if (opt.value === chosen && chosen !== correct) label.classList.add('wrong');
+    });
+    fb.textContent = explanations[name][chosen];
+    fb.className = 'quiz-feedback ' + (chosen === correct ? 'correct' : 'wrong');
+  });
+});
+</script>
+</body>
+</html>

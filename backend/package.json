@@ -1,0 +1,13 @@
+{
+	"name": "@self-improover/backend",
+	"version": "0.0.1",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "tsx watch src/index.ts"
+	},
+	"devDependencies": {
+		"tsx": "^4.22.4",
+		"typescript": "^6.0.3"
+	}
+}
