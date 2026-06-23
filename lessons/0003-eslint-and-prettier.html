@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lesson 3 — ESLint + Prettier</title>
+    <link rel="stylesheet" href="../assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <div class="lesson-meta">Self-Improover · Lesson 3 of ?</div>
+      <h1>ESLint + Prettier</h1>
+      <p class="subtitle">Two tools. One job each. Never overlap.</p>
+
+      <h2>The problem they solve</h2>
+
+      <p>
+        Every codebase develops two kinds of inconsistency over time — things that
+        <em>look</em> different and things that <em>behave</em> dangerously:
+      </p>
+
+      <ul>
+        <li>One file uses 2-space indent, another uses 4. One uses single quotes, another uses double.</li>
+        <li>A variable is declared but never used. A function accepts <code>any</code> and silently breaks at runtime.</li>
+      </ul>
+
+      <p>
+        The first kind is <strong>style</strong> — annoying, but harmless. The second kind is
+        <strong>correctness</strong> — these are bugs waiting to happen.
+      </p>
+
+      <p>ESLint and Prettier solve different problems:</p>
+
+      <table style="width: 100%; border-collapse: collapse; margin: 1.5rem 0">
+        <thead>
+          <tr style="border-bottom: 2px solid var(--rule)">
+            <th style="text-align: left; padding: 0.5rem 0.75rem">Tool</th>
+            <th style="text-align: left; padding: 0.5rem 0.75rem">Job</th>
+            <th style="text-align: left; padding: 0.5rem 0.75rem">Examples</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom: 1px solid var(--rule)">
+            <td style="padding: 0.5rem 0.75rem"><strong>Prettier</strong></td>
+            <td style="padding: 0.5rem 0.75rem">Formatting only</td>
+            <td style="padding: 0.5rem 0.75rem">indentation, quotes, semicolons, trailing commas</td>
+          </tr>
+          <tr>
+            <td style="padding: 0.5rem 0.75rem"><strong>ESLint</strong></td>
+            <td style="padding: 0.5rem 0.75rem">Correctness only</td>
+            <td style="padding: 0.5rem 0.75rem">unused vars, <code>any</code> types, broken React hooks</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="callout">
+        <strong>The rule of thumb:</strong> If it changes the visual layout of your code but not its
+        meaning — Prettier owns it. If it could be a bug — ESLint owns it.
+      </div>
+
+      <h2>Why two tools instead of one?</h2>
+
+      <p>
+        ESLint <em>can</em> enforce formatting rules (it did this for years), but Prettier does it far
+        better: it reprints your entire file from scratch, so the output is always identical no matter
+        what the original looked like. ESLint just reports violations — you still have to fix them
+        manually.
+      </p>
+
+      <p>
+        The problem is that if you run both and their opinions differ, ESLint keeps
+        complaining about formatting that Prettier already fixed correctly.
+        That's the conflict —
+        <strong>solved by <code>eslint-config-prettier</code></strong>, which disables every ESLint
+        formatting rule so Prettier wins unopposed.
+      </p>
+
+      <h2>Flat config — the new ESLint format</h2>
+
+      <p>
+        Until 2024, ESLint used <code>.eslintrc.json</code> — a nested config format that was hard to
+        compose. ESLint 9 replaced it with
+        <strong>flat config</strong>: a single <code>eslint.config.mjs</code> that exports an array of
+        config objects. Each object can set <code>files</code>, <code>plugins</code>, and
+        <code>rules</code>.
+      </p>
+
+      <p>Think of it as a stack of layers. Each layer can add rules, and later layers win:</p>
+
+      <div class="diagram">eslint.config.mjs — layers, top to bottom
+
+  1. { ignores }                  ← global ignore patterns
+  2. js.configs.recommended       ← base JS rules
+  3. ...tseslint.configs.recommended  ← TypeScript rules
+  4. { files: ["**/*.ts"], rules } ← our overrides (any → error, unused → error)
+  5. { files: ["frontend/**"] }   ← React rules scoped to frontend only
+  6. prettierConfig               ← LAST: strips all formatting rules</div>
+
+      <div class="callout">
+        <strong>Order matters.</strong> <code>eslint-config-prettier</code> <em>must</em> be the last
+        item in the array. It works by disabling rules — if something after it re-adds a formatting
+        rule, the conflict returns.
+      </div>
+
+      <h2>Why React plugins are scoped to <code>frontend/**</code></h2>
+
+      <p>
+        The React plugin adds rules like "hooks must not be called conditionally" — rules that only make
+        sense inside React components. If ESLint tried to apply those rules to your backend
+        <code>index.ts</code>, it would throw false errors on perfectly valid Hono code.
+      </p>
+
+      <p>The <code>files</code> key scopes a layer to matching paths only:</p>
+
+      <pre><code>{
+  files: ["frontend/**/*.{ts,tsx}"],
+  plugins: { react, "react-hooks" },
+  rules: { ... }  // only applied inside frontend/
+}</code></pre>
+
+      <p>
+        Backend files are never touched by these rules. This is the monorepo payoff: one config file,
+        different rules per package, no duplication.
+      </p>
+
+      <h2>Why the plugins live at the root</h2>
+
+      <p>
+        ESLint runs from wherever you invoke it — in this project, always from the repo root
+        (<code>npm run lint</code>). When ESLint needs to load <code>eslint-plugin-react</code>, it
+        looks for it relative to the process working directory, which is the root.
+      </p>
+
+      <p>
+        So all ESLint/Prettier packages belong in root <code>devDependencies</code> — even the
+        React-specific ones — because the root is where ESLint runs. React <em>runtime</em>
+        (<code>react</code>, <code>react-dom</code>) still lives in <code>frontend/package.json</code>
+        because that's where it's bundled.
+      </p>
+
+      <!-- Quiz -->
+      <div class="quiz">
+        <h3>Check your understanding</h3>
+
+        <div class="quiz-question">
+          <p>
+            1. Prettier reformats your code so all strings use double quotes. ESLint has a
+            <code>quotes: ["error", "single"]</code> rule. What happens when you run both?
+          </p>
+          <div class="quiz-options">
+            <label class="quiz-option"
+              ><input type="radio" name="q1" value="a" />
+              Prettier wins — it always runs after ESLint</label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q1" value="b" />
+              ESLint errors on every file even after Prettier formats them correctly</label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q1" value="c" />
+              They auto-detect each other and resolve the conflict</label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q1" value="d" />
+              ESLint silently skips formatting rules when Prettier is installed</label
+            >
+          </div>
+          <div class="quiz-feedback" id="q1-feedback"></div>
+        </div>
+
+        <div class="quiz-question">
+          <p>
+            2. You move <code>prettierConfig</code> from last to first in your
+            <code>eslint.config.mjs</code> array. What breaks?
+          </p>
+          <div class="quiz-options">
+            <label class="quiz-option"
+              ><input type="radio" name="q2" value="a" />
+              Prettier stops formatting files entirely</label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q2" value="b" />
+              ESLint formatting rules from later layers override prettierConfig's disables</label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q2" value="c" />
+              TypeScript rules stop working because they depend on prettierConfig</label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q2" value="d" />
+              The React plugin is no longer scoped to the frontend package</label
+            >
+          </div>
+          <div class="quiz-feedback" id="q2-feedback"></div>
+        </div>
+
+        <div class="quiz-question">
+          <p>
+            3. You want ESLint to also check <code>.js</code> files in the backend. The current config
+            only has <code>files: ["**/*.{ts,tsx}"]</code> for TypeScript rules. What do you add?
+          </p>
+          <div class="quiz-options">
+            <label class="quiz-option"
+              ><input type="radio" name="q3" value="a" />
+              A new layer: <code>{ files: ["backend/**/*.js"], rules: { ... } }</code></label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q3" value="b" />
+              Rename <code>eslint.config.mjs</code> to <code>eslint.config.js</code></label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q3" value="c" />
+              Add <code>"backend/**/*.js"</code> to the root <code>.prettierignore</code></label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q3" value="d" />
+              Move <code>eslint-plugin-react</code> to <code>backend/package.json</code></label
+            >
+          </div>
+          <div class="quiz-feedback" id="q3-feedback"></div>
+        </div>
+
+        <div class="quiz-question">
+          <p>
+            4. A teammate adds <code>@typescript-eslint/no-explicit-any: "warn"</code> after
+            <code>tseslint.configs.recommended</code> in the config. Your existing
+            <code>"error"</code> rule is in the layer directly below it. What does ESLint enforce?
+          </p>
+          <div class="quiz-options">
+            <label class="quiz-option"
+              ><input type="radio" name="q4" value="a" />
+              Error — earlier layers always win</label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q4" value="b" />
+              Warning — later layers win, the new "warn" overrides "error"</label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q4" value="c" />
+              Both — ESLint applies all layers simultaneously</label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q4" value="d" />
+              Error — TypeScript rules cannot be downgraded by later layers</label
+            >
+          </div>
+          <div class="quiz-feedback" id="q4-feedback"></div>
+        </div>
+      </div>
+
+      <div class="lesson-footer">
+        <p>
+          <strong>Primary source:</strong>
+          <a href="https://eslint.org/docs/latest/use/configure/configuration-files" target="_blank"
+            >ESLint flat config reference — official docs</a
+          >
+          · The definitive guide to the config array format, <code>files</code> globs, and plugin
+          registration.
+        </p>
+        <p style="margin-top: 0.75rem">
+          <strong>Also worth reading:</strong>
+          <a href="https://prettier.io/docs/en/comparison.html" target="_blank"
+            >Prettier vs. Linters — official comparison</a
+          >
+          · Explains exactly why Prettier and ESLint should not overlap.
+        </p>
+        <p style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--rule)">
+          Questions? Anything unclear? Ask your teacher in the chat.
+        </p>
+        <div class="lesson-nav">
+          <a href="0002-scaffolding-issue-8.html">← Lesson 2</a>
+          <span>Lesson 4 coming after issue #10</span>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const answers = { q1: "b", q2: "b", q3: "a", q4: "b" };
+      const explanations = {
+        q1: {
+          a: "Run order doesn't matter — they're independent tools. The conflict is that ESLint's rule flags code that Prettier already made valid.",
+          b: "Correct. Without eslint-config-prettier, ESLint would report a `quotes` error on every file even after Prettier has already formatted them to double quotes.",
+          c: "They have no awareness of each other. You have to explicitly disable the conflict with eslint-config-prettier.",
+          d: "ESLint has no automatic detection — you must use eslint-config-prettier to disable the conflicting rules.",
+        },
+        q2: {
+          a: "Prettier is a separate process — moving it in the ESLint config has no effect on Prettier itself.",
+          b: "Correct. prettierConfig works by disabling rules. If it runs first, later layers re-enable formatting rules, and the conflict returns. It must be last.",
+          c: "TypeScript rules have no dependency on prettierConfig's position.",
+          d: "File scoping is handled by the files key in each layer — unrelated to prettierConfig's position.",
+        },
+        q3: {
+          a: "Correct. A new layer with files: ['backend/**/*.js'] adds rules scoped to those files. Flat config is additive — you compose layers.",
+          b: "The file extension of the config file only affects whether Node.js treats it as ESM or CJS — it has no effect on which source files ESLint checks.",
+          c: ".prettierignore controls Prettier's scope, not ESLint's.",
+          d: "Moving a plugin to backend/package.json would break ESLint since ESLint runs from the root and resolves plugins relative to the root.",
+        },
+        q4: {
+          a: "In flat config, later layers win. The teammate's layer comes after yours, so their 'warn' takes effect.",
+          b: "Correct. In ESLint's flat config, later config objects override earlier ones for the same rule. 'warn' from a later layer beats 'error' from an earlier one.",
+          c: "Rules are resolved per-file, per-rule — the last matching layer wins, not all layers simultaneously.",
+          d: "TypeScript rules are just regular ESLint rules — they can be overridden like any other.",
+        },
+      };
+
+      document.querySelectorAll("input[type=radio]").forEach((input) => {
+        input.addEventListener("change", function () {
+          const name = this.name;
+          const chosen = this.value;
+          const correct = answers[name];
+          const fb = document.getElementById(name + "-feedback");
+          const options = document.querySelectorAll(`input[name="${name}"]`);
+          options.forEach((opt) => {
+            const label = opt.closest(".quiz-option");
+            label.classList.remove("correct", "wrong");
+            if (opt.value === correct) label.classList.add("correct");
+            else if (opt.value === chosen && chosen !== correct) label.classList.add("wrong");
+          });
+          fb.textContent = explanations[name][chosen];
+          fb.className = "quiz-feedback " + (chosen === correct ? "correct" : "wrong");
+        });
+      });
+    </script>
+  </body>
+</html>
