@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Lesson 4 — Hono + Neon + Drizzle</title>
+    <link rel="stylesheet" href="../assets/lesson.css" />
+  </head>
+  <body>
+    <div class="page">
+      <div class="lesson-meta">Self-Improover · Lesson 4 of ?</div>
+      <h1>Hono + Neon + Drizzle</h1>
+      <p class="subtitle">Your server, your database, your types — all three talking to each other.</p>
+
+      <h2>The request-response cycle</h2>
+
+      <p>
+        Your frontend is code that runs in the browser. It can draw things on screen, but it has no
+        way to store data that persists after the tab closes, or that other users can see. That's the
+        job of a <strong>backend</strong> — a program that runs on a server (not in a browser),
+        accepts requests from clients, and returns responses.
+      </p>
+
+      <p>Every conversation between a frontend and a backend follows the same pattern:</p>
+
+      <div class="diagram">  Browser                             Server (Hono)
+  ──────                             ─────────────
+
+  1. User submits a check-in form
+  2. Frontend sends an HTTP request ──►  POST /checkins
+                                         handler runs: validate, save to DB
+  3. Frontend receives response      ◄──  { id: 42, score: 3 }
+  4. UI updates</div>
+
+      <p>
+        The request has two key parts: an <strong>HTTP method</strong> (GET, POST, PUT, DELETE) and a
+        <strong>path</strong> (<code>/checkins</code>). Together they identify what the client wants
+        to do. The server registers a <strong>route</strong> for each method + path combination, and
+        runs the matching <strong>handler function</strong> when a request comes in.
+      </p>
+
+      <h2>Hono: an HTTP framework for TypeScript</h2>
+
+      <p>
+        You could write a raw Node.js server, but you'd spend most of your time parsing URLs,
+        reading request bodies, and setting response headers by hand. A framework handles that
+        plumbing so you only write the business logic.
+      </p>
+
+      <p>
+        We use <strong>Hono</strong>. It's tiny, runs on Node.js (and several other runtimes), and was
+        designed for TypeScript from day one — every request and response is fully typed.
+      </p>
+
+      <p>A minimal Hono app looks like this:</p>
+
+      <pre><code>import { Hono } from "hono";
+import { serve } from "@hono/node-server";
+
+const app = new Hono();
+
+app.get("/health", (c) => {
+  return c.json({ status: "ok" });
+});
+
+serve({ fetch: app.fetch, port: 3000 });</code></pre>
+
+      <p>
+        <code>app.get(path, handler)</code> registers a route. The handler receives a
+        <strong>context object</strong> (<code>c</code>) that wraps the request and lets you build a
+        response. <code>c.json()</code> sends a JSON body with a 200 status.
+      </p>
+
+      <div class="callout">
+        <strong>Why Hono and not Express?</strong>
+        Express is the classic Node.js framework, but it was written before TypeScript existed.
+        Its types are bolted on as an afterthought. Hono was built for TypeScript: the
+        context, request, and response are all precisely typed, so your editor catches mistakes
+        before you run the code.
+      </div>
+
+      <h2>Postgres and Neon: where data lives</h2>
+
+      <p>
+        Your app's data — users, areas, commitments, check-ins — has to outlive any single request
+        and be readable by future requests. It lives in a <strong>database</strong>.
+      </p>
+
+      <p>
+        We use <strong>PostgreSQL</strong> (Postgres), a relational database. Data is stored in
+        tables with rows and columns, and tables can relate to each other. For example, a
+        <code>commitments</code> row belongs to an <code>areas</code> row via a foreign key.
+      </p>
+
+      <p>
+        Running Postgres yourself means installing it, configuring it, keeping it updated, and backing
+        it up. <strong>Neon</strong> takes care of all that: it's Postgres hosted in the cloud. You get
+        a <em>connection string</em> — a URL that encodes everything needed to connect — and use it
+        from your code.
+      </p>
+
+      <div class="diagram">  postgresql://user:password@ep-something.us-east-2.aws.neon.tech/self_improover
+  ────────────────────────────────────────────────────────────────────────────
+       │        │         │          │                          │
+    protocol  user    password     host                      database name</div>
+
+      <p>
+        That string contains your database password. It must never appear in source code or get
+        committed to git. More on that in the next section.
+      </p>
+
+      <h2>Drizzle ORM: your schema in TypeScript</h2>
+
+      <p>
+        You <em>could</em> query Postgres by writing raw SQL strings — but raw strings have no type
+        checking. A typo in a column name only shows up at runtime, not at compile time.
+      </p>
+
+      <p>
+        An <strong>ORM</strong> (Object-Relational Mapper) lets you write queries in TypeScript instead
+        of SQL. We use <strong>Drizzle</strong>, which takes a different approach from most ORMs:
+        you define your schema as TypeScript objects, and Drizzle uses that to type every query
+        automatically.
+      </p>
+
+      <pre><code>import { pgTable, serial, text, integer } from "drizzle-orm/pg-core";
+
+export const areas = pgTable("areas", {
+  id:     serial("id").primaryKey(),
+  name:   text("name").notNull(),
+  weight: integer("weight").notNull().default(1),
+});</code></pre>
+
+      <p>
+        This is the <em>schema file</em>. It's the single source of truth for what the
+        <code>areas</code> table looks like. Drizzle derives TypeScript types from it automatically —
+        no duplicate type definitions needed.
+      </p>
+
+      <p>When you query this table, the result is fully typed:</p>
+
+      <pre><code>const result = await db.select().from(areas);
+// result is Area[] — TypeScript knows every column and its type</code></pre>
+
+      <div class="callout">
+        <strong>Schema first, types second.</strong> This matches the project's philosophy: Zod schemas
+        are the source of truth for HTTP request/response shapes; Drizzle schemas are the source of
+        truth for database shapes. TypeScript types are derived — never written by hand.
+      </div>
+
+      <h2>Environment variables: secrets don't belong in code</h2>
+
+      <p>
+        Your Neon connection string contains a password. If it appears in a file you commit, anyone
+        with access to the repo — now or in the future — can connect to your database and read or
+        delete all your data.
+      </p>
+
+      <p>
+        The solution is <strong>environment variables</strong>: values that exist outside your code,
+        set in the environment where the process runs. In Node.js, you read them with
+        <code>process.env.VARIABLE_NAME</code>:
+      </p>
+
+      <pre><code>const connectionString = process.env.DATABASE_URL;
+//    connectionString is string | undefined</code></pre>
+
+      <p>
+        During development, you store them in a <code>.env</code> file at the root of the package.
+        A library called <strong>dotenv</strong> (or the newer built-in <code>--env-file</code> flag
+        in Node 20+) reads that file and populates <code>process.env</code> before your code runs.
+      </p>
+
+      <div class="diagram">  .env file (NOT committed)          process.env (runtime, in memory)
+  ─────────────────────────          ────────────────────────────────
+  DATABASE_URL=postgresql://...  ──►  process.env.DATABASE_URL = "postgresql://..."
+  PORT=3000                      ──►  process.env.PORT = "3000"</div>
+
+      <p>
+        The <code>.env</code> file must be listed in <code>.gitignore</code>. You typically also
+        commit a <code>.env.example</code> file with the same keys but empty values, so teammates
+        know what to fill in.
+      </p>
+
+      <h2>The health check: one endpoint that proves everything works</h2>
+
+      <p>
+        When you start the server, two things need to be working: the server itself, and the database
+        connection. A <strong>health check</strong> is a single endpoint — <code>GET /health</code> —
+        that tests both and reports the result.
+      </p>
+
+      <pre><code>app.get("/health", async (c) => {
+  try {
+    await db.execute(sql`SELECT 1`);   // cheapest possible DB query
+    return c.json({ status: "ok" });
+  } catch {
+    return c.json({ status: "db_error" }, 500);
+  }
+});</code></pre>
+
+      <p>
+        If the server responds 200, you know: the process is running, <code>process.env</code> was
+        loaded, Drizzle connected successfully, and at least one query completed. If it returns 500,
+        you know the DB is unreachable — maybe the connection string is wrong, or Neon is down.
+      </p>
+
+      <p>
+        Health checks are used everywhere in production: load balancers hit them before routing
+        traffic, monitoring services alert on non-200s, and deploy systems wait for a passing health
+        check before marking a deploy successful.
+      </p>
+
+      <!-- Quiz -->
+      <div class="quiz">
+        <h3>Check your understanding</h3>
+
+        <div class="quiz-question">
+          <p>
+            1. Your frontend sends <code>POST /checkins</code>. Nothing in the browser handles it.
+            What picks it up and runs code?
+          </p>
+          <div class="quiz-options">
+            <label class="quiz-option"
+              ><input type="radio" name="q1" value="a" />
+              A browser event listener registered with <code>addEventListener("POST")</code></label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q1" value="b" />
+              The Hono route handler registered for <code>app.post("/checkins", ...)</code></label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q1" value="c" />
+              Drizzle ORM, because the path matches a table name</label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q1" value="d" />
+              The TypeScript compiler, at build time</label
+            >
+          </div>
+          <div class="quiz-feedback" id="q1-feedback"></div>
+        </div>
+
+        <div class="quiz-question">
+          <p>
+            2. <code>GET /health</code> returns 500 even though the server started with no errors.
+            What is the most likely cause?
+          </p>
+          <div class="quiz-options">
+            <label class="quiz-option"
+              ><input type="radio" name="q2" value="a" />
+              Hono automatically returns 500 for any GET request in development mode</label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q2" value="b" />
+              The handler tried a DB query, the connection failed, and the catch block returned 500</label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q2" value="c" />
+              Neon sends a WebSocket signal to Hono when it goes offline</label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q2" value="d" />
+              <code>process.env</code> becomes <code>undefined</code> when the database disconnects</label
+            >
+          </div>
+          <div class="quiz-feedback" id="q2-feedback"></div>
+        </div>
+
+        <div class="quiz-question">
+          <p>
+            3. You write the Neon connection string directly in <code>src/db.ts</code> and commit it.
+            What is the primary risk?
+          </p>
+          <div class="quiz-options">
+            <label class="quiz-option"
+              ><input type="radio" name="q3" value="a" />
+              Drizzle won't accept connection strings defined in source files</label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q3" value="b" />
+              TypeScript strict mode disallows string literals longer than 100 characters</label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q3" value="c" />
+              Anyone with repo access — now or in the future — can connect directly to your database</label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q3" value="d" />
+              Hono will refuse to start because it requires environment-variable-based config</label
+            >
+          </div>
+          <div class="quiz-feedback" id="q3-feedback"></div>
+        </div>
+
+        <div class="quiz-question">
+          <p>
+            4. Your <code>.env</code> file exists and has <code>DATABASE_URL=postgresql://...</code>,
+            but you forgot to load it. What is <code>process.env.DATABASE_URL</code> at runtime?
+          </p>
+          <div class="quiz-options">
+            <label class="quiz-option"
+              ><input type="radio" name="q4" value="a" />
+              An empty string <code>""</code></label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q4" value="b" />
+              <code>undefined</code></label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q4" value="c" />
+              The literal string <code>"DATABASE_URL"</code></label
+            >
+            <label class="quiz-option"
+              ><input type="radio" name="q4" value="d" />
+              Whatever value it held in the previous process run</label
+            >
+          </div>
+          <div class="quiz-feedback" id="q4-feedback"></div>
+        </div>
+      </div>
+
+      <div class="lesson-footer">
+        <p>
+          <strong>Primary source:</strong>
+          <a href="https://hono.dev/docs/getting-started/nodejs" target="_blank"
+            >Hono — Node.js getting started</a
+          >
+          · How to create a Hono app, add routes, and serve it with <code>@hono/node-server</code>.
+        </p>
+        <p style="margin-top: 0.75rem">
+          <strong>Also worth reading:</strong>
+          <a href="https://orm.drizzle.team/docs/get-started/neon-new" target="_blank"
+            >Drizzle + Neon quickstart</a
+          >
+          · The official guide for connecting Drizzle to a Neon database — this is exactly what
+          issue #10 asks you to do.
+        </p>
+        <p style="margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--rule)">
+          Questions? Anything unclear? Ask your teacher in the chat.
+        </p>
+        <div class="lesson-nav">
+          <a href="0003-eslint-and-prettier.html">← Lesson 3</a>
+          <span>Ready to build — issue #10</span>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const answers = { q1: "b", q2: "b", q3: "c", q4: "b" };
+      const explanations = {
+        q1: {
+          a: 'There is no "POST" browser event. The browser sends the request over the network — it has no awareness of what happens on the other end.',
+          b: "Correct. The Hono server is listening on a port. When the POST /checkins request arrives, Hono matches it to the registered route handler and calls it.",
+          c: "Drizzle is a database query builder — it doesn't route HTTP requests. It has no knowledge of incoming URLs.",
+          d: "The TypeScript compiler runs at build time, not at runtime. It doesn't process HTTP requests.",
+        },
+        q2: {
+          a: "Hono has no mode-based status behavior. Status codes come from your handler code.",
+          b: "Correct. The handler executes a DB query inside a try/catch. If the connection fails (wrong URL, Neon unreachable, etc.), the catch block runs and explicitly returns 500.",
+          c: "Neon doesn't communicate with Hono directly. The failure shows up as a thrown error when your code tries to run a query.",
+          d: "process.env is a plain object in memory — it doesn't change based on database state.",
+        },
+        q3: {
+          a: "Drizzle accepts connection strings from any source — environment variables, constants, function returns. It doesn't care where the string came from.",
+          b: "TypeScript has no such limit on string literals.",
+          c: "Correct. Git history is permanent. Once a secret is committed, it lives in every clone and in the remote history — even if you delete the file later.",
+          d: "Hono has no opinion about how you configure your DB. It doesn't even know a database exists.",
+        },
+        q4: {
+          a: 'An environment variable that was never set is not an empty string — it simply doesn\'t exist. process.env["X"] returns undefined, not "".',
+          b: "Correct. process.env only contains variables that were actually set in the process environment. If .env was never loaded, DATABASE_URL was never set, so process.env.DATABASE_URL is undefined.",
+          c: "process.env keys are never their own values. process.env.DATABASE_URL is either the value you set or undefined.",
+          d: "process.env is populated fresh each time a process starts — there is no memory of previous runs.",
+        },
+      };
+
+      document.querySelectorAll("input[type=radio]").forEach((input) => {
+        input.addEventListener("change", function () {
+          const name = this.name;
+          const chosen = this.value;
+          const correct = answers[name];
+          const fb = document.getElementById(name + "-feedback");
+          const options = document.querySelectorAll(`input[name="${name}"]`);
+          options.forEach((opt) => {
+            const label = opt.closest(".quiz-option");
+            label.classList.remove("correct", "wrong");
+            if (opt.value === correct) label.classList.add("correct");
+            else if (opt.value === chosen && chosen !== correct) label.classList.add("wrong");
+          });
+          fb.textContent = explanations[name][chosen];
+          fb.className = "quiz-feedback " + (chosen === correct ? "correct" : "wrong");
+        });
+      });
+    </script>
+  </body>
+</html>
